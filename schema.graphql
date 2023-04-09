@@ -1,0 +1,58 @@
+"""
+Market stores all high level variables for a cToken market
+"""
+type Market @entity {
+  "CToken address"
+  id: ID!
+
+  "Name of the cToken"
+  name: String!
+
+  "CToken symbol"
+  symbol: String!
+
+  "Underlying token name"
+  underlyingName: String!
+
+  "Underlying token price in USD"
+  underlyingPriceUSD: BigDecimal!
+
+  "Underlying token decimal length"
+  underlyingDecimals: Int!
+
+  "Borrows in the market"
+  totalBorrows: BigDecimal!
+
+  "CToken supply."
+  totalSupply: BigDecimal!
+
+  "Reserves stored in the contract"
+  reserves: BigDecimal!
+
+  "The cToken contract balance of ERC20 or ETH"
+  cash: BigDecimal!
+
+  "Yearly supply rate."
+  supplyRate: BigDecimal!
+
+  "Yearly borrow rate."
+  borrowRate: BigDecimal!
+
+  "Exchange rate of tokens / cTokens"
+  exchangeRate: BigDecimal!
+
+  "The history of the markets borrow index return (Think S&P 500)"
+  borrowIndex: BigInt!
+
+  "The factor determining interest that goes to reserves"
+  reserveFactor: BigInt!
+
+  "Block the market is updated to"
+  accrualBlockTimestamp: Int!
+
+  "Timestamp the market was most recently updated"
+  blockTimestamp: Int!
+
+  " Price feed address "
+  feed: String!
+}
