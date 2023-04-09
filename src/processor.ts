@@ -25,6 +25,7 @@ const processor = new EvmBatchProcessor()
     chain: process.env.RPC_ENDPOINT || "wss://wss.api.moonbeam.network",
     archive: lookupArchive("moonbeam", { type: "EVM" }),
   })
+  .setBlockRange({ from: 1277865 })
   .addLog(mGLMRcontractAddress, {
     filter: [[cTokenEvents.AccrueInterest.topic]],
     data: {
