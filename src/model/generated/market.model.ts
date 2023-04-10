@@ -113,12 +113,6 @@ export class Market {
     /**
      * Timestamp the market was most recently updated
      */
-    @Column_("int4", {nullable: false})
-    blockTimestamp!: number
-
-    /**
-     *  Price feed address 
-     */
-    @Column_("text", {nullable: false})
-    feed!: string
+    @Column_("numeric", {transformer: marshal.bigintTransformer, nullable: false})
+    blockTimestamp!: bigint
 }

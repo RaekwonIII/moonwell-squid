@@ -18,6 +18,8 @@ let mantissaFactor = 18;
 let cTokenDecimals = 8;
 let mantissaFactorBD: BigDecimal = exponentToBigDecimal(mantissaFactor);
 let cTokenDecimalsBD: BigDecimal = exponentToBigDecimal(cTokenDecimals);
+let secondsPerDay = 24 * 60 * 60;
+let daysPerYear = 365;
 
 const processor = new EvmBatchProcessor()
   .setDataSource({
@@ -134,25 +136,29 @@ async function updateMarket(
     exchangeRateStored,
     totalReserves,
     reserveFactorMantissa,
+    supplyRatePerTimestampResult,
+    borrowRatePerTimestampResult
   ] = await Promise.all([
     contractAPI.accrualBlockTimestamp(),
     contractAPI.totalSupply(),
     contractAPI.exchangeRateStored(),
     contractAPI.totalReserves(),
     contractAPI.reserveFactorMantissa(),
+    contractAPI.supplyRatePerTimestamp(),
+    contractAPI.borrowRatePerTimestamp()
   ]);
 
   market.accrualBlockTimestamp = accrualBlockTimestamp.toNumber();
-  market.blockTimestamp = ctx.block.timestamp;
-  market.totalSupply = BigDecimal(totalSupply.toNumber());
+  market.blockTimestamp = BigInt(ctx.block.timestamp);
+  market.totalSupply = BigDecimal(totalSupply.toString());
 
-  market.exchangeRate = BigDecimal(exchangeRateStored.toNumber())
+  market.exchangeRate = BigDecimal(exchangeRateStored.toString())
     .div(exponentToBigDecimal(market.underlyingDecimals))
     .times(cTokenDecimalsBD)
     .div(mantissaFactorBD)
     .round(mantissaFactor, 0);
 
-  market.reserves = BigDecimal(totalReserves.toNumber())
+  market.reserves = BigDecimal(totalReserves.toBigInt())
     .div(exponentToBigDecimal(market.underlyingDecimals))
     .round(market.underlyingDecimals, 0);
 
@@ -164,6 +170,20 @@ async function updateMarket(
     .round(market.underlyingDecimals, 0);
   market.borrowIndex = borrowIndex.toBigInt();
   market.reserveFactor = reserveFactorMantissa.toBigInt();
+  market.supplyRate = 
+    BigDecimal((
+      100.0 *
+      (Math.pow(1.0 + (supplyRatePerTimestampResult.toNumber() * secondsPerDay) / 1e18, daysPerYear) -
+        1)
+    ).toString());
+
+  market.borrowRate = 
+    BigDecimal((
+      100.0 *
+      (Math.pow(1.0 + (borrowRatePerTimestampResult.toNumber() * secondsPerDay) / 1e18, daysPerYear) -
+        1)
+    ).toString());
+
 
   await ctx.store.save(market);
 }

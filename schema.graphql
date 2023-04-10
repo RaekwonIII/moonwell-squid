@@ -53,8 +53,5 @@ type Market @entity {
   accrualBlockTimestamp: Int!
 
   "Timestamp the market was most recently updated"
-  blockTimestamp: Int!
-
-  " Price feed address "
-  feed: String!
+  blockTimestamp: BigInt!
 }
