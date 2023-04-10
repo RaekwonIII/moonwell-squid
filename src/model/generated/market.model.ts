@@ -17,6 +17,9 @@ export class Market {
     @PrimaryColumn_()
     id!: string
 
+    @Column_("text", {nullable: false})
+    address!: string
+
     /**
      * Name of the cToken
      */

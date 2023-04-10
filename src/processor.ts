@@ -1,24 +1,23 @@
 import { lookupArchive } from "@subsquid/archive-registry";
 import { Store, TypeormDatabase } from "@subsquid/typeorm-store";
-import { EvmBatchProcessor, EvmBlock, LogHandlerContext } from "@subsquid/evm-processor";
-import { In, MaxKey } from "typeorm";
-import { ethers } from "ethers";
+import { EvmBatchProcessor, LogHandlerContext } from "@subsquid/evm-processor";
 import { Market } from "./model";
 
 import { events as cTokenEvents } from "./abi/ctoken";
 import { events as feedEvents } from "./abi/feed";
-import { Contract as OracleContract } from "./abi/priceOracle";
-import { Contract as CTokenContract } from "./abi/ctoken";
+import { Contract as OracleContract } from "./abi/chainlinkOracle";
+import { Contract as mGLMRContract } from "./abi/mGLMR";
 import { BigDecimal } from "@subsquid/big-decimal";
 import { BlockContext } from "./abi/abi.support";
 
 const mGLMROracleContract = "0xED301cd3EB27217BDB05C4E9B820a8A3c8B665f9";
 const mGLMRPriceFeedContract = "0x62ca6b55f0bb1241c635e3dff51883f8b9f49aa4";
 const mGLMRcontractAddress = "0x091608f4e4a15335145be0a279483c0f8e4c7955";
-export let mantissaFactor = 18;
-export let cTokenDecimals = 8;
-export let mantissaFactorBD: BigDecimal = exponentToBigDecimal(mantissaFactor);
-export let cTokenDecimalsBD: BigDecimal = exponentToBigDecimal(cTokenDecimals);
+
+let mantissaFactor = 18;
+let cTokenDecimals = 8;
+let mantissaFactorBD: BigDecimal = exponentToBigDecimal(mantissaFactor);
+let cTokenDecimalsBD: BigDecimal = exponentToBigDecimal(cTokenDecimals);
 
 const processor = new EvmBatchProcessor()
   .setDataSource({
@@ -52,40 +51,56 @@ const processor = new EvmBatchProcessor()
   });
 
 processor.run(new TypeormDatabase(), async (ctx) => {
-  
-  const lastBlock = ctx.blocks[ctx.blocks.length - 1];
+  let latestPriceUpdateEvent:
+    | LogHandlerContext<
+        Store,
+        { evmLog: { topics: true; data: true }; transaction: { hash: true } }
+      >
+    | undefined = undefined;
+  let latestAccrueInterestEventCtx:
+    | LogHandlerContext<
+        Store,
+        { evmLog: { topics: true; data: true }; transaction: { hash: true } }
+      >
+    | undefined = undefined;
   let latestIntegerPrice = BigDecimal(0);
-  // update the latest price as frequently as possible
+
   for (let block of ctx.blocks) {
     for (let i of block.items) {
       if (i.address === mGLMRPriceFeedContract && i.kind === "evmLog") {
         if (i.evmLog.topics[0] === feedEvents.AnswerUpdated.topic) {
-          try {
-            latestIntegerPrice = await handleAnswerUpdated({ ...ctx, block: block.header});
-          } catch (error) {
-            ctx.log.warn(`[API] Error fetching price from oracle ${mGLMRcontractAddress}, on block ${block.header.height}`);
-            if (error instanceof Error) {
-              ctx.log.warn(`${error.message}`);
-            }
-          }
+          latestPriceUpdateEvent = {
+            ...ctx,
+            block: block.header,
+            ...i,
+          };
+        }
+      }
+      if (i.address === mGLMRcontractAddress && i.kind === "evmLog") {
+        if (i.evmLog.topics[0] === cTokenEvents.AccrueInterest.topic) {
+          latestAccrueInterestEventCtx = {
+            ...ctx,
+            block: block.header,
+            ...i,
+          };
         }
       }
     }
   }
-  // since the logic is rather trivial and only updates 1 market (GMLR)
-  // and does not calculate based on events, rather "polls" the contract
-  // status, might as well save RPC calls and do it at the end of every batch.
-
-  for (let i of lastBlock.items) {
-    if (i.address === mGLMRcontractAddress && i.kind === "evmLog") {
-      if (i.evmLog.topics[0] === cTokenEvents.AccrueInterest.topic) {
-        await updateMarket({
-          ...ctx,
-          block: lastBlock.header,
-          ...i,
-        }, lastBlock.header, latestIntegerPrice);
+  if (latestPriceUpdateEvent !== undefined) {
+    try {
+      latestIntegerPrice = await handleAnswerUpdated(latestPriceUpdateEvent);
+    } catch (error) {
+      ctx.log.warn(
+        `[API] Error fetching price from oracle ${mGLMRcontractAddress}, on block ${latestPriceUpdateEvent.block.height}`
+      );
+      if (error instanceof Error) {
+        ctx.log.warn(`${error.message}`);
       }
     }
+  }
+  if (latestAccrueInterestEventCtx !== undefined) {
+    await updateMarket(latestAccrueInterestEventCtx, latestIntegerPrice);
   }
 });
 
@@ -94,49 +109,50 @@ async function updateMarket(
     Store,
     { evmLog: { topics: true; data: true }; transaction: { hash: true } }
   >,
-  lastBlock: EvmBlock,
   latestIntegerPrice: BigDecimal
-): Promise<Market> {
+): Promise<void> {
   const { cashPrior, borrowIndex, interestAccumulated, totalBorrows } =
     cTokenEvents.AccrueInterest.decode(ctx.evmLog);
-  let market = await ctx.store.findOne(Market, {
-    where: { id: mGLMRcontractAddress },
+  const market = new Market({
+    id: `${mGLMRcontractAddress}-${ctx.evmLog.id}-${ctx.block.timestamp}`,
+    address: mGLMRcontractAddress,
+    name: "GLRM",
+    symbol: "GLRM",
+    underlyingPriceUSD: latestIntegerPrice || BigDecimal(0),
+    underlyingDecimals: 18,
+    underlyingName: "GLRM",
   });
-  if (market == null) {
-    market = new Market({
-      id: mGLMRcontractAddress,
-      name: "GLRM",
-      symbol: "GLRM",
-      underlyingPriceUSD: BigDecimal(0),
-      underlyingDecimals: 18,
-      underlyingName: "GLRM",
-    });
-  }
-  // Only update the market if it hasn't already been updated this block
-  if (market.accrualBlockTimestamp === lastBlock.timestamp) return market;
-
-  ctx.evmLog.address;
-  const contract = new CTokenContract(
+  const contractAPI = new mGLMRContract(
     ctx,
-    { height: lastBlock.height },
+    { height: ctx.block.height },
     mGLMRcontractAddress
   );
 
-  market.accrualBlockTimestamp = (
-    await contract.accrualBlockTimestamp()
-  ).toNumber();
-  market.blockTimestamp = ctx.block.timestamp;
-  market.totalSupply = BigDecimal((await contract.totalSupply()).toNumber());
+  const [
+    accrualBlockTimestamp,
+    totalSupply,
+    exchangeRateStored,
+    totalReserves,
+    reserveFactorMantissa,
+  ] = await Promise.all([
+    contractAPI.accrualBlockTimestamp(),
+    contractAPI.totalSupply(),
+    contractAPI.exchangeRateStored(),
+    contractAPI.totalReserves(),
+    contractAPI.reserveFactorMantissa(),
+  ]);
 
-  market.exchangeRate = BigDecimal(
-    (await contract.exchangeRateStored()).toNumber()
-  )
+  market.accrualBlockTimestamp = accrualBlockTimestamp.toNumber();
+  market.blockTimestamp = ctx.block.timestamp;
+  market.totalSupply = BigDecimal(totalSupply.toNumber());
+
+  market.exchangeRate = BigDecimal(exchangeRateStored.toNumber())
     .div(exponentToBigDecimal(market.underlyingDecimals))
     .times(cTokenDecimalsBD)
     .div(mantissaFactorBD)
     .round(mantissaFactor, 0);
 
-  market.reserves = BigDecimal((await contract.totalReserves()).toNumber())
+  market.reserves = BigDecimal(totalReserves.toNumber())
     .div(exponentToBigDecimal(market.underlyingDecimals))
     .round(market.underlyingDecimals, 0);
 
@@ -147,21 +163,16 @@ async function updateMarket(
     .div(exponentToBigDecimal(market.underlyingDecimals))
     .round(market.underlyingDecimals, 0);
   market.borrowIndex = borrowIndex.toBigInt();
-  market.reserveFactor = (await contract.reserveFactorMantissa()).toBigInt()
+  market.reserveFactor = reserveFactorMantissa.toBigInt();
 
-  return market;
+  await ctx.store.save(market);
 }
 
-async function handleAnswerUpdated(
-  ctx: BlockContext
-): Promise<BigDecimal> {
-  const contract = new OracleContract(
-    ctx,
-    mGLMROracleContract
+async function handleAnswerUpdated(ctx: BlockContext): Promise<BigDecimal> {
+  const contract = new OracleContract(ctx, mGLMROracleContract);
+  const price = BigDecimal(
+    (await contract.getUnderlyingPrice(mGLMRcontractAddress)).toBigInt()
   );
-  const price = BigDecimal((
-    await contract.getUnderlyingPrice(mGLMRcontractAddress)
-  ).toBigInt());
   return price;
 }
 

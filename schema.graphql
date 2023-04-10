@@ -5,6 +5,8 @@ type Market @entity {
   "CToken address"
   id: ID!
 
+  address: String!
+
   "Name of the cToken"
   name: String!
 
