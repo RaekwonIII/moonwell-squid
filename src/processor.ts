@@ -3,10 +3,9 @@ import { Store, TypeormDatabase } from "@subsquid/typeorm-store";
 import { EvmBatchProcessor, LogHandlerContext } from "@subsquid/evm-processor";
 import { Market } from "./model";
 
-import { events as cTokenEvents } from "./abi/ctoken";
 import { events as feedEvents } from "./abi/feed";
 import { Contract as OracleContract } from "./abi/chainlinkOracle";
-import { Contract as mGLMRContract } from "./abi/mGLMR";
+import { Contract as mGLMRContract, events as mGLRMEvents } from "./abi/mGLMR";
 import { BigDecimal } from "@subsquid/big-decimal";
 import { BlockContext } from "./abi/abi.support";
 
@@ -14,12 +13,13 @@ const mGLMROracleContract = "0xED301cd3EB27217BDB05C4E9B820a8A3c8B665f9";
 const mGLMRPriceFeedContract = "0x62ca6b55f0bb1241c635e3dff51883f8b9f49aa4";
 const mGLMRcontractAddress = "0x091608f4e4a15335145be0a279483c0f8e4c7955";
 
-let mantissaFactor = 18;
-let cTokenDecimals = 8;
-let mantissaFactorBD: BigDecimal = exponentToBigDecimal(mantissaFactor);
-let cTokenDecimalsBD: BigDecimal = exponentToBigDecimal(cTokenDecimals);
-let secondsPerDay = 24 * 60 * 60;
-let daysPerYear = 365;
+const mantissaFactor = 18;
+const cTokenDecimals = 8;
+const mantissaFactorBD: BigDecimal = exponentToBigDecimal(mantissaFactor);
+const cTokenDecimalsBD: BigDecimal = exponentToBigDecimal(cTokenDecimals);
+const secondsPerHour = 24 * 60;
+const secondsPerDay = secondsPerHour * 60;
+const daysPerYear = 365;
 
 const processor = new EvmBatchProcessor()
   .setDataSource({
@@ -28,7 +28,7 @@ const processor = new EvmBatchProcessor()
   })
   .setBlockRange({ from: 1277865 })
   .addLog(mGLMRcontractAddress, {
-    filter: [[cTokenEvents.AccrueInterest.topic]],
+    filter: [[mGLRMEvents.AccrueInterest.topic]],
     data: {
       evmLog: {
         topics: true,
@@ -53,34 +53,27 @@ const processor = new EvmBatchProcessor()
   });
 
 processor.run(new TypeormDatabase(), async (ctx) => {
-  let latestPriceUpdateEvent:
+  let latestPriceUpdateEventCtx:
     | LogHandlerContext<
         Store,
         { evmLog: { topics: true; data: true }; transaction: { hash: true } }
       >
     | undefined = undefined;
-  let latestAccrueInterestEventCtx:
+  let accrueInterestEventCtxArr:
     | LogHandlerContext<
         Store,
         { evmLog: { topics: true; data: true }; transaction: { hash: true } }
-      >
-    | undefined = undefined;
+      >[] = [];
+  let accrueEventsCounter = 0;
   let latestIntegerPrice = BigDecimal(0);
 
+  // one full loop to get the latest price in this batch
+  // solves initialization problem for the market updates
   for (let block of ctx.blocks) {
     for (let i of block.items) {
       if (i.address === mGLMRPriceFeedContract && i.kind === "evmLog") {
         if (i.evmLog.topics[0] === feedEvents.AnswerUpdated.topic) {
-          latestPriceUpdateEvent = {
-            ...ctx,
-            block: block.header,
-            ...i,
-          };
-        }
-      }
-      if (i.address === mGLMRcontractAddress && i.kind === "evmLog") {
-        if (i.evmLog.topics[0] === cTokenEvents.AccrueInterest.topic) {
-          latestAccrueInterestEventCtx = {
+          latestPriceUpdateEventCtx = {
             ...ctx,
             block: block.header,
             ...i,
@@ -89,22 +82,53 @@ processor.run(new TypeormDatabase(), async (ctx) => {
       }
     }
   }
-  if (latestPriceUpdateEvent !== undefined) {
+  if (latestPriceUpdateEventCtx !== undefined) {
     try {
-      latestIntegerPrice = await handleAnswerUpdated(latestPriceUpdateEvent);
+      latestIntegerPrice = await handleAnswerUpdated(latestPriceUpdateEventCtx);
     } catch (error) {
       ctx.log.warn(
-        `[API] Error fetching price from oracle ${mGLMRcontractAddress}, on block ${latestPriceUpdateEvent.block.height}`
+        `[API] Error fetching price from oracle ${mGLMRcontractAddress}, on block ${latestPriceUpdateEventCtx.block.height}`
       );
       if (error instanceof Error) {
         ctx.log.warn(`${error.message}`);
       }
     }
   }
-  if (latestAccrueInterestEventCtx !== undefined) {
-    await updateMarket(latestAccrueInterestEventCtx, latestIntegerPrice);
+
+  // one other loop over the batch to process market updates, with the price established.
+  for (let block of ctx.blocks) {
+    for (let i of block.items) {
+      if (i.address === mGLMRcontractAddress && i.kind === "evmLog") {
+        if (i.evmLog.topics[0] === mGLRMEvents.AccrueInterest.topic) {
+          accrueEventsCounter += 1;
+          // add events to be indexed when they are at least 1 hour apart
+          let blockTSDiff = timestampDiffInSecs(accrueInterestEventCtxArr.at(-1)?.block.timestamp, block.header.timestamp);
+          if (accrueInterestEventCtxArr.length === 0 ||  blockTSDiff > secondsPerHour ) {
+            ctx.log.debug(`Market Update events were ${blockTSDiff} seconds apart, adding to the list`)
+            accrueInterestEventCtxArr.push({
+              ...ctx,
+              block: block.header,
+              ...i,
+            });
+          }
+        }
+      }
+    }
+  }
+  ctx.log.info(`First block's timestamp: ${ctx.blocks.at(0)?.header.timestamp}`)
+  ctx.log.info(`Last block's timestamp: ${ctx.blocks.at(-1)?.header.timestamp}`)
+  ctx.log.info(`Found ${accrueInterestEventCtxArr.length} market update events to be processed in a batch with ${accrueEventsCounter} total events.`)
+  // process all market updates found in the batch
+  for (let accrueInterestEventCtx of accrueInterestEventCtxArr) {
+    await updateMarket(accrueInterestEventCtx, latestIntegerPrice);
   }
 });
+
+function timestampDiffInSecs(start: number | undefined, end: number | undefined) {
+  if (!end) return 0;
+  if (!start) return 0;
+  return (end - start) / 1000;
+}
 
 async function updateMarket(
   ctx: LogHandlerContext<
@@ -114,7 +138,7 @@ async function updateMarket(
   latestIntegerPrice: BigDecimal
 ): Promise<void> {
   const { cashPrior, borrowIndex, interestAccumulated, totalBorrows } =
-    cTokenEvents.AccrueInterest.decode(ctx.evmLog);
+    mGLRMEvents.AccrueInterest.decode(ctx.evmLog);
   const market = new Market({
     id: `${mGLMRcontractAddress}-${ctx.evmLog.id}-${ctx.block.timestamp}`,
     address: mGLMRcontractAddress,
