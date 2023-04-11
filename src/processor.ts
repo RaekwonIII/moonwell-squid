@@ -103,7 +103,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
           accrueEventsCounter += 1;
           // add events to be indexed when they are at least 1 hour apart
           let blockTSDiff = timestampDiffInSecs(accrueInterestEventCtxArr.at(-1)?.block.timestamp, block.header.timestamp);
-          if (accrueInterestEventCtxArr.length === 0 ||  blockTSDiff > secondsPerHour ) {
+          if (accrueInterestEventCtxArr.length === 0 ||  blockTSDiff > (secondsPerHour * 3) ) {
             ctx.log.debug(`Market Update events were ${blockTSDiff} seconds apart, adding to the list`)
             accrueInterestEventCtxArr.push({
               ...ctx,
