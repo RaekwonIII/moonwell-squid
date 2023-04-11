@@ -6,6 +6,8 @@ build:
 deploy:
   addons:
     postgres: 
+  secrets:
+    - MOONBEAM_CHAIN_NODE
   processor:
     cmd:
       - node

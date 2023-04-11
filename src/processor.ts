@@ -23,7 +23,7 @@ const daysPerYear = 365;
 
 const processor = new EvmBatchProcessor()
   .setDataSource({
-    chain: process.env.RPC_ENDPOINT || "wss://wss.api.moonbeam.network",
+    chain: process.env.MOONBEAM_CHAIN_NODE || "wss://wss.api.moonbeam.network",
     archive: lookupArchive("moonbeam", { type: "EVM" }),
   })
   .setBlockRange({ from: 1277865 })
