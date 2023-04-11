@@ -120,9 +120,16 @@ async function updateMarket(
     address: mGLMRcontractAddress,
     name: "GLRM",
     symbol: "GLRM",
-    underlyingPriceUSD: latestIntegerPrice || BigDecimal(0),
-    underlyingDecimals: 18,
+    blockTimestamp: BigInt(ctx.block.timestamp),
+    underlyingDecimals: mantissaFactor,
     underlyingName: "GLRM",
+    totalBorrows: BigDecimal(totalBorrows.toBigInt())
+      .div(exponentToBigDecimal(mantissaFactor))
+      .round(mantissaFactor, 0),
+    cash: BigDecimal(cashPrior.toBigInt())
+      .div(exponentToBigDecimal(mantissaFactor))
+      .round(mantissaFactor, 0),
+    borrowIndex: borrowIndex.toBigInt()
   });
   const contractAPI = new mGLMRContract(
     ctx,
@@ -137,7 +144,7 @@ async function updateMarket(
     totalReserves,
     reserveFactorMantissa,
     supplyRatePerTimestampResult,
-    borrowRatePerTimestampResult
+    borrowRatePerTimestampResult,
   ] = await Promise.all([
     contractAPI.accrualBlockTimestamp(),
     contractAPI.totalSupply(),
@@ -145,12 +152,17 @@ async function updateMarket(
     contractAPI.totalReserves(),
     contractAPI.reserveFactorMantissa(),
     contractAPI.supplyRatePerTimestamp(),
-    contractAPI.borrowRatePerTimestamp()
+    contractAPI.borrowRatePerTimestamp(),
   ]);
 
+  if (latestIntegerPrice) {
+    market.underlyingPriceUSD = latestIntegerPrice.div(
+      exponentToBigDecimal(18 - market.underlyingDecimals + 18)
+    );
+  }
+
   market.accrualBlockTimestamp = accrualBlockTimestamp.toNumber();
-  market.blockTimestamp = BigInt(ctx.block.timestamp);
-  market.totalSupply = BigDecimal(totalSupply.toString());
+  market.totalSupply = BigDecimal(totalSupply.toString()).div(cTokenDecimalsBD);
 
   market.exchangeRate = BigDecimal(exchangeRateStored.toString())
     .div(exponentToBigDecimal(market.underlyingDecimals))
@@ -162,28 +174,28 @@ async function updateMarket(
     .div(exponentToBigDecimal(market.underlyingDecimals))
     .round(market.underlyingDecimals, 0);
 
-  market.totalBorrows = BigDecimal(totalBorrows.toBigInt())
-    .div(exponentToBigDecimal(market.underlyingDecimals))
-    .round(market.underlyingDecimals, 0);
-  market.cash = BigDecimal(cashPrior.toBigInt())
-    .div(exponentToBigDecimal(market.underlyingDecimals))
-    .round(market.underlyingDecimals, 0);
-  market.borrowIndex = borrowIndex.toBigInt();
   market.reserveFactor = reserveFactorMantissa.toBigInt();
-  market.supplyRate = 
-    BigDecimal((
+  market.supplyRate = BigDecimal(
+    (
       100.0 *
-      (Math.pow(1.0 + (supplyRatePerTimestampResult.toNumber() * secondsPerDay) / 1e18, daysPerYear) -
+      (Math.pow(
+        1.0 + (supplyRatePerTimestampResult.toNumber() * secondsPerDay) / 1e18,
+        daysPerYear
+      ) -
         1)
-    ).toString());
+    ).toString()
+  );
 
-  market.borrowRate = 
-    BigDecimal((
+  market.borrowRate = BigDecimal(
+    (
       100.0 *
-      (Math.pow(1.0 + (borrowRatePerTimestampResult.toNumber() * secondsPerDay) / 1e18, daysPerYear) -
+      (Math.pow(
+        1.0 + (borrowRatePerTimestampResult.toNumber() * secondsPerDay) / 1e18,
+        daysPerYear
+      ) -
         1)
-    ).toString());
-
+    ).toString()
+  );
 
   await ctx.store.save(market);
 }
