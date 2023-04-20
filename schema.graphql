@@ -55,3 +55,36 @@ type Market @entity {
   "Timestamp the market was most recently updated"
   blockTimestamp: BigInt!
 }
+
+enum MaketOrderType {
+  BORROW
+  LIQUIDATE_BORROW
+  MINT
+  REDEEM
+  REPAY_BORROW
+  TRANSFER
+}
+
+type MarketOrder @entity {
+  "Transaction hash concatenated with log index"
+  id: ID!
+  type: MaketOrderType!
+  "cTokens transferred"
+  amount: BigDecimal!
+  "Account that received tokens"
+  to: String!
+  "Account that sent tokens"
+  from: String!
+  "Block number"
+  blockNumber: Int!
+  "Block time"
+  blockTime: BigInt!
+  "Symbol of the cToken transferred"
+  cTokenSymbol: String!
+  "Symbol of the underlying asset repaid through liquidation"
+  underlyingSymbol: String!
+  "Underlying token amount transferred"
+  underlyingAmount: BigDecimal
+  "Underlying cToken amount that was repaid by liquidator"
+  underlyingRepayAmount: BigDecimal
+}

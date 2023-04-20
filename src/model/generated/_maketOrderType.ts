@@ -1,0 +1,8 @@
+export enum MaketOrderType {
+    BORROW = "BORROW",
+    LIQUIDATE_BORROW = "LIQUIDATE_BORROW",
+    MINT = "MINT",
+    REDEEM = "REDEEM",
+    REPAY_BORROW = "REPAY_BORROW",
+    TRANSFER = "TRANSFER",
+}
