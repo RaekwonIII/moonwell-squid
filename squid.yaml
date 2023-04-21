@@ -1,6 +1,6 @@
 manifestVersion: subsquid.io/v0.1
 name: moonwell-squid
-version: 1
+version: 2
 description: A template for Frontier EVM networks (Moonbeam, Astar)
 build: 
 deploy:
