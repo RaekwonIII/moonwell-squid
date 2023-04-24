@@ -94,4 +94,6 @@ type Account @entity {
 
   "Timestamp of most recent order"
   latestOrder: BigInt!
+
+  orderType: MaketOrderType!
 }

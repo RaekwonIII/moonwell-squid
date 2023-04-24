@@ -465,25 +465,32 @@ async function saveAccounts(
     if (fromAccount == null) {
       fromAccount = new Account({ 
         id: marketOrder.from.toLowerCase(),
-        latestOrder: marketOrder.blockTime
+        latestOrder: marketOrder.blockTime,
+        orderType: marketOrder.type
       });
       accounts.set(fromAccount.id, fromAccount);
     }
     if (fromAccount.latestOrder < marketOrder.blockTime) {
       fromAccount.latestOrder = marketOrder.blockTime
+      fromAccount.orderType = marketOrder.type
     }
 
     let toAccount = accounts.get(marketOrder.to);
     if (toAccount == null) {
       toAccount = new Account({ 
         id: marketOrder.to.toLowerCase(),
-        latestOrder: marketOrder.blockTime });
+        latestOrder: marketOrder.blockTime,
+        orderType: marketOrder.type
+      });
       accounts.set(toAccount.id, toAccount);
     }
     if (toAccount.latestOrder < marketOrder.blockTime) {
       toAccount.latestOrder = marketOrder.blockTime
+      toAccount.orderType = marketOrder.type
     }
   }
+
+  ctx.log.info(`Saving ${accounts.size} accounts`)
 
   await ctx.store.save([...accounts.values()]);
 }
