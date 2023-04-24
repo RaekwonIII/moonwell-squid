@@ -88,3 +88,10 @@ type MarketOrder @entity {
   "Underlying cToken amount that was repaid by liquidator"
   underlyingRepayAmount: BigDecimal
 }
+
+type Account @entity {
+  id: ID!
+
+  "Timestamp of most recent order"
+  latestOrder: BigInt!
+}

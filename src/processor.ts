@@ -5,7 +5,7 @@ import {
   EvmBatchProcessor,
   LogHandlerContext,
 } from "@subsquid/evm-processor";
-import { MaketOrderType, Market, MarketOrder } from "./model";
+import { Account, MaketOrderType, Market, MarketOrder } from "./model";
 
 import { events as feedEvents } from "./abi/feed";
 import { Contract as OracleContract } from "./abi/chainlinkOracle";
@@ -13,6 +13,7 @@ import { Contract as mGLMRContract, events as mGLRMEvents } from "./abi/mGLMR";
 import { BigDecimal } from "@subsquid/big-decimal";
 import { BlockContext } from "./abi/abi.support";
 import { BigNumber } from "ethers";
+import { In } from "typeorm";
 
 const mGLMROracleContract = "0xED301cd3EB27217BDB05C4E9B820a8A3c8B665f9";
 const mGLMRPriceFeedContract = "0x62ca6b55f0bb1241c635e3dff51883f8b9f49aa4";
@@ -150,7 +151,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
         } else if (i.evmLog.topics[0] === mGLRMEvents.Borrow.topic) {
           const { borrower, borrowAmount, totalBorrows, accountBorrows } =
             mGLRMEvents.Borrow.decode(i.evmLog);
-          ctx.log.info(
+          ctx.log.debug(
             `totalBorrows ${totalBorrows}, accountBorrows ${accountBorrows}`
           );
 
@@ -174,7 +175,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
             mTokenCollateral,
             seizeTokens,
           } = mGLRMEvents.LiquidateBorrow.decode(i.evmLog);
-          ctx.log.info(
+          ctx.log.debug(
             `seizeTokens ${seizeTokens}, repayAmount ${repayAmount}, marketCTokenLiquidated ${mTokenCollateral}`
           );
 
@@ -194,7 +195,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
           const { minter, mintAmount, mintTokens } = mGLRMEvents.Mint.decode(
             i.evmLog
           );
-          ctx.log.info(`mintAmount ${mintAmount}, mintTokens ${mintTokens}`);
+          ctx.log.debug(`mintAmount ${mintAmount}, mintTokens ${mintTokens}`);
 
           marketOrders.push(
             handleMArketOrder(
@@ -211,7 +212,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
         } else if (i.evmLog.topics[0] === mGLRMEvents.Redeem.topic) {
           const { redeemer, redeemAmount, redeemTokens } =
             mGLRMEvents.Redeem.decode(i.evmLog);
-          ctx.log.info(
+          ctx.log.debug(
             `redeemAmount ${redeemAmount}, redeemTokens ${redeemTokens}`
           );
 
@@ -262,13 +263,13 @@ processor.run(new TypeormDatabase(), async (ctx) => {
       }
     }
   }
-  ctx.log.info(
+  ctx.log.debug(
     `First block's timestamp: ${ctx.blocks.at(0)?.header.timestamp}`
   );
-  ctx.log.info(
+  ctx.log.debug(
     `Last block's timestamp: ${ctx.blocks.at(-1)?.header.timestamp}`
   );
-  ctx.log.info(
+  ctx.log.debug(
     `Found ${accrueInterestEventCtxArr.length} market update events to be processed in a batch with ${accrueEventsCounter} total events.`
   );
   // process all market updates found in the batch
@@ -276,6 +277,12 @@ processor.run(new TypeormDatabase(), async (ctx) => {
     await updateMarket(accrueInterestEventCtx, latestIntegerPrice);
   }
   await ctx.store.save(marketOrders);
+  await saveAccounts(
+    {
+      ...ctx,
+      block: ctx.blocks[ctx.blocks.length - 1].header,
+    },
+    marketOrders)
 });
 
 function timestampDiffInSecs(
@@ -432,4 +439,51 @@ function handleMArketOrder(
     ).div(cTokenDecimalsBD);
 
   return marketOrder;
+}
+
+async function saveAccounts(
+  ctx: BlockHandlerContext<Store>,
+  marketOrders: MarketOrder[]
+) {
+  const accountIds: Set<string> = new Set();
+
+  for (const marketOrder of marketOrders) {
+    if (marketOrder.from) accountIds.add(marketOrder.from.toLowerCase());
+    if (marketOrder.to) accountIds.add(marketOrder.to.toLowerCase());
+  }
+
+  const accounts: Map<string, Account> = new Map(
+    (await ctx.store.findBy(Account, { id: In([...accountIds]) })).map((account) => [
+      account.id,
+      account,
+    ])
+  );
+
+  for (const marketOrder of marketOrders) {
+
+    let fromAccount = accounts.get(marketOrder.from);
+    if (fromAccount == null) {
+      fromAccount = new Account({ 
+        id: marketOrder.from.toLowerCase(),
+        latestOrder: marketOrder.blockTime
+      });
+      accounts.set(fromAccount.id, fromAccount);
+    }
+    if (fromAccount.latestOrder < marketOrder.blockTime) {
+      fromAccount.latestOrder = marketOrder.blockTime
+    }
+
+    let toAccount = accounts.get(marketOrder.to);
+    if (toAccount == null) {
+      toAccount = new Account({ 
+        id: marketOrder.to.toLowerCase(),
+        latestOrder: marketOrder.blockTime });
+      accounts.set(toAccount.id, toAccount);
+    }
+    if (toAccount.latestOrder < marketOrder.blockTime) {
+      toAccount.latestOrder = marketOrder.blockTime
+    }
+  }
+
+  await ctx.store.save([...accounts.values()]);
 }
