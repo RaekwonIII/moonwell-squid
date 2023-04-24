@@ -34,18 +34,6 @@ const processor = new EvmBatchProcessor()
   })
   .setBlockRange({ from: 1277865 })
   .addLog(mGLMRcontractAddress, {
-    filter: [[mGLRMEvents.AccrueInterest.topic]],
-    data: {
-      evmLog: {
-        topics: true,
-        data: true,
-      },
-      transaction: {
-        hash: true,
-      },
-    },
-  })
-  .addLog(mGLMRcontractAddress, {
     filter: [
       [
         mGLRMEvents.AccrueInterest.topic,
