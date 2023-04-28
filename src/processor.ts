@@ -9,7 +9,7 @@ import { Account, MaketOrderType, Market, MarketOrder } from "./model";
 
 import { events as feedEvents } from "./abi/feed";
 import { Contract as OracleContract } from "./abi/chainlinkOracle";
-import { Contract as mGLMRContract, events as mGLRMEvents } from "./abi/mGLMR";
+import { Contract as mGLMRContract, events as mGLMREvents } from "./abi/mGLMR";
 import { BigDecimal } from "@subsquid/big-decimal";
 import { BlockContext } from "./abi/abi.support";
 import { BigNumber } from "ethers";
@@ -36,13 +36,13 @@ const processor = new EvmBatchProcessor()
   .addLog(mGLMRcontractAddress, {
     filter: [
       [
-        mGLRMEvents.AccrueInterest.topic,
-        mGLRMEvents.Borrow.topic,
-        mGLRMEvents.LiquidateBorrow.topic,
-        mGLRMEvents.Mint.topic,
-        mGLRMEvents.Redeem.topic,
-        mGLRMEvents.RepayBorrow.topic,
-        mGLRMEvents.Transfer.topic,
+        mGLMREvents.AccrueInterest.topic,
+        mGLMREvents.Borrow.topic,
+        mGLMREvents.LiquidateBorrow.topic,
+        mGLMREvents.Mint.topic,
+        mGLMREvents.Redeem.topic,
+        mGLMREvents.RepayBorrow.topic,
+        mGLMREvents.Transfer.topic,
       ],
     ],
     data: {
@@ -81,8 +81,8 @@ processor.run(new TypeormDatabase(), async (ctx) => {
         { evmLog: { topics: true; data: true }; transaction: { hash: true } }
       >[] = [];
   let accrueEventsCounter = 0;
-  let latestIntegerPrice = BigDecimal(0);
   let marketOrders: MarketOrder[] = [];
+  let latestIntegerPrice = BigDecimal(0);
 
   // one full loop to get the latest price in this batch
   // solves initialization problem for the market updates
@@ -116,7 +116,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
   for (let block of ctx.blocks) {
     for (let i of block.items) {
       if (i.address === mGLMRcontractAddress && i.kind === "evmLog") {
-        if (i.evmLog.topics[0] === mGLRMEvents.AccrueInterest.topic) {
+        if (i.evmLog.topics[0] === mGLMREvents.AccrueInterest.topic) {
           accrueEventsCounter += 1;
           // add events to be indexed when they are at least 1 hour apart
           let blockTSDiff = timestampDiffInSecs(
@@ -136,9 +136,9 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               ...i,
             });
           }
-        } else if (i.evmLog.topics[0] === mGLRMEvents.Borrow.topic) {
+        } else if (i.evmLog.topics[0] === mGLMREvents.Borrow.topic) {
           const { borrower, borrowAmount, totalBorrows, accountBorrows } =
-            mGLRMEvents.Borrow.decode(i.evmLog);
+            mGLMREvents.Borrow.decode(i.evmLog);
           ctx.log.debug(
             `totalBorrows ${totalBorrows}, accountBorrows ${accountBorrows}`
           );
@@ -155,14 +155,14 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               MaketOrderType.TRANSFER
             )
           );
-        } else if (i.evmLog.topics[0] === mGLRMEvents.LiquidateBorrow.topic) {
+        } else if (i.evmLog.topics[0] === mGLMREvents.LiquidateBorrow.topic) {
           const {
             liquidator,
             borrower,
             repayAmount,
             mTokenCollateral,
             seizeTokens,
-          } = mGLRMEvents.LiquidateBorrow.decode(i.evmLog);
+          } = mGLMREvents.LiquidateBorrow.decode(i.evmLog);
           ctx.log.debug(
             `seizeTokens ${seizeTokens}, repayAmount ${repayAmount}, marketCTokenLiquidated ${mTokenCollateral}`
           );
@@ -176,11 +176,11 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.TRANSFER
+              MaketOrderType.LIQUIDATE_BORROW
             )
           );
-        } else if (i.evmLog.topics[0] === mGLRMEvents.Mint.topic) {
-          const { minter, mintAmount, mintTokens } = mGLRMEvents.Mint.decode(
+        } else if (i.evmLog.topics[0] === mGLMREvents.Mint.topic) {
+          const { minter, mintAmount, mintTokens } = mGLMREvents.Mint.decode(
             i.evmLog
           );
           ctx.log.debug(`mintAmount ${mintAmount}, mintTokens ${mintTokens}`);
@@ -194,12 +194,12 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.TRANSFER
+              MaketOrderType.MINT
             )
           );
-        } else if (i.evmLog.topics[0] === mGLRMEvents.Redeem.topic) {
+        } else if (i.evmLog.topics[0] === mGLMREvents.Redeem.topic) {
           const { redeemer, redeemAmount, redeemTokens } =
-            mGLRMEvents.Redeem.decode(i.evmLog);
+            mGLMREvents.Redeem.decode(i.evmLog);
           ctx.log.debug(
             `redeemAmount ${redeemAmount}, redeemTokens ${redeemTokens}`
           );
@@ -213,12 +213,12 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.TRANSFER
+              MaketOrderType.REDEEM
             )
           );
-        } else if (i.evmLog.topics[0] === mGLRMEvents.RepayBorrow.topic) {
+        } else if (i.evmLog.topics[0] === mGLMREvents.RepayBorrow.topic) {
           const { payer, borrower, repayAmount, accountBorrows, totalBorrows } =
-            mGLRMEvents.RepayBorrow.decode(i.evmLog);
+            mGLMREvents.RepayBorrow.decode(i.evmLog);
 
           marketOrders.push(
             handleMArketOrder(
@@ -229,11 +229,11 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.TRANSFER
+              MaketOrderType.REPAY_BORROW
             )
           );
-        } else if (i.evmLog.topics[0] === mGLRMEvents.Transfer.topic) {
-          const { from, to, amount } = mGLRMEvents.Transfer.decode(i.evmLog);
+        } else if (i.evmLog.topics[0] === mGLMREvents.Transfer.topic) {
+          const { from, to, amount } = mGLMREvents.Transfer.decode(i.evmLog);
 
           marketOrders.push(
             handleMArketOrder(
@@ -290,7 +290,7 @@ async function updateMarket(
   latestIntegerPrice: BigDecimal
 ): Promise<void> {
   const { cashPrior, borrowIndex, interestAccumulated, totalBorrows } =
-    mGLRMEvents.AccrueInterest.decode(ctx.evmLog);
+    mGLMREvents.AccrueInterest.decode(ctx.evmLog);
   const market = new Market({
     id: `${mGLMRcontractAddress}-${ctx.evmLog.id}-${ctx.block.timestamp}`,
     address: mGLMRcontractAddress,
