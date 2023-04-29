@@ -5,7 +5,7 @@ import {
   EvmBatchProcessor,
   LogHandlerContext,
 } from "@subsquid/evm-processor";
-import { Account, MaketOrderType, Market, MarketOrder } from "./model";
+import { Account, MarketOrderType, Market, MarketOrder } from "./model";
 
 import { events as feedEvents } from "./abi/feed";
 import { Contract as OracleContract } from "./abi/chainlinkOracle";
@@ -144,7 +144,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
           );
 
           marketOrders.push(
-            handleMArketOrder(
+            handleMarketOrder(
               mGLMRcontractAddress, // when tokens are redeemed, they are coming from the token address itself
               borrower,
               borrowAmount,
@@ -152,7 +152,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.TRANSFER
+              MarketOrderType.BORROW
             )
           );
         } else if (i.evmLog.topics[0] === mGLMREvents.LiquidateBorrow.topic) {
@@ -168,7 +168,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
           );
 
           marketOrders.push(
-            handleMArketOrder(
+            handleMarketOrder(
               borrower, // when tokens are redeemed, they are coming from the token address itself
               liquidator,
               seizeTokens,
@@ -176,7 +176,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.LIQUIDATE_BORROW
+              MarketOrderType.LIQUIDATE_BORROW
             )
           );
         } else if (i.evmLog.topics[0] === mGLMREvents.Mint.topic) {
@@ -186,7 +186,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
           ctx.log.debug(`mintAmount ${mintAmount}, mintTokens ${mintTokens}`);
 
           marketOrders.push(
-            handleMArketOrder(
+            handleMarketOrder(
               mGLMRcontractAddress, // when tokens are minted, they are coming from the token address itself
               minter,
               mintTokens,
@@ -194,7 +194,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.MINT
+              MarketOrderType.MINT
             )
           );
         } else if (i.evmLog.topics[0] === mGLMREvents.Redeem.topic) {
@@ -205,7 +205,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
           );
 
           marketOrders.push(
-            handleMArketOrder(
+            handleMarketOrder(
               redeemer, // when tokens are redeemed, they are going back the token address itself
               mGLMRcontractAddress,
               redeemTokens,
@@ -213,7 +213,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.REDEEM
+              MarketOrderType.REDEEM
             )
           );
         } else if (i.evmLog.topics[0] === mGLMREvents.RepayBorrow.topic) {
@@ -221,7 +221,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
             mGLMREvents.RepayBorrow.decode(i.evmLog);
 
           marketOrders.push(
-            handleMArketOrder(
+            handleMarketOrder(
               payer,
               borrower,
               repayAmount,
@@ -229,14 +229,14 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.REPAY_BORROW
+              MarketOrderType.REPAY_BORROW
             )
           );
         } else if (i.evmLog.topics[0] === mGLMREvents.Transfer.topic) {
           const { from, to, amount } = mGLMREvents.Transfer.decode(i.evmLog);
 
           marketOrders.push(
-            handleMArketOrder(
+            handleMarketOrder(
               from,
               to,
               amount,
@@ -244,7 +244,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
               i.evmLog.index,
               block.header.height,
               BigInt(block.header.timestamp),
-              MaketOrderType.TRANSFER
+              MarketOrderType.TRANSFER
             )
           );
         }
@@ -393,7 +393,7 @@ export function exponentToBigDecimal(decimals: number): BigDecimal {
   return res;
 }
 
-function handleMArketOrder(
+function handleMarketOrder(
   from: string,
   to: string,
   amount: BigNumber,
@@ -401,7 +401,7 @@ function handleMArketOrder(
   evmLogIndex: number,
   blockNumber: number,
   timestamp: bigint,
-  type: MaketOrderType,
+  type: MarketOrderType,
   underlyingRepayAmount?: BigNumber
 ): MarketOrder {
   let transferID = transactionHash.concat("-").concat(evmLogIndex.toString());
@@ -421,7 +421,7 @@ function handleMArketOrder(
   });
   marketOrder.underlyingAmount = marketOrder.amount;
 
-  if (type === MaketOrderType.LIQUIDATE_BORROW)
+  if (type === MarketOrderType.LIQUIDATE_BORROW)
     marketOrder.underlyingRepayAmount = BigDecimal(
       underlyingRepayAmount?.toBigInt() || 0
     ).div(cTokenDecimalsBD);

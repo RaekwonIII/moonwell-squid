@@ -1,7 +1,7 @@
 import {BigDecimal} from "@subsquid/big-decimal"
 import {Entity as Entity_, Column as Column_, PrimaryColumn as PrimaryColumn_} from "typeorm"
 import * as marshal from "./marshal"
-import {MaketOrderType} from "./_maketOrderType"
+import {MarketOrderType} from "./_marketOrderType"
 
 @Entity_()
 export class MarketOrder {
@@ -16,7 +16,7 @@ export class MarketOrder {
     id!: string
 
     @Column_("varchar", {length: 16, nullable: false})
-    type!: MaketOrderType
+    type!: MarketOrderType
 
     /**
      * cTokens transferred

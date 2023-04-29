@@ -56,7 +56,7 @@ type Market @entity {
   blockTimestamp: BigInt!
 }
 
-enum MaketOrderType {
+enum MarketOrderType {
   BORROW
   LIQUIDATE_BORROW
   MINT
@@ -68,7 +68,7 @@ enum MaketOrderType {
 type MarketOrder @entity {
   "Transaction hash concatenated with log index"
   id: ID!
-  type: MaketOrderType!
+  type: MarketOrderType!
   "cTokens transferred"
   amount: BigDecimal!
   "Account that received tokens"
@@ -95,5 +95,5 @@ type Account @entity {
   "Timestamp of most recent order"
   latestOrder: BigInt!
 
-  orderType: MaketOrderType!
+  orderType: MarketOrderType!
 }

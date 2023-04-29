@@ -1,6 +1,6 @@
 import {Entity as Entity_, Column as Column_, PrimaryColumn as PrimaryColumn_} from "typeorm"
 import * as marshal from "./marshal"
-import {MaketOrderType} from "./_maketOrderType"
+import {MarketOrderType} from "./_marketOrderType"
 
 @Entity_()
 export class Account {
@@ -18,5 +18,5 @@ export class Account {
     latestOrder!: bigint
 
     @Column_("varchar", {length: 16, nullable: false})
-    orderType!: MaketOrderType
+    orderType!: MarketOrderType
 }

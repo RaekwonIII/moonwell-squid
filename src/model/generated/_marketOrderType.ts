@@ -1,4 +1,4 @@
-export enum MaketOrderType {
+export enum MarketOrderType {
     BORROW = "BORROW",
     LIQUIDATE_BORROW = "LIQUIDATE_BORROW",
     MINT = "MINT",
